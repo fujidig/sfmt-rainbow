@@ -11,6 +11,7 @@
 #include <tuple>
 #include <map>
 #include <utility>
+#include <fstream>
 
 #include "gen_hash.h"
 

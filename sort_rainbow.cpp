@@ -10,6 +10,7 @@
 #include <set>
 #include <tuple>
 #include <map>
+#include <fstream>
 
 #include "gen_hash.h"
 
