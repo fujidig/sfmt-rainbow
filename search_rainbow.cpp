@@ -28,7 +28,7 @@ constexpr uint64_t MAX = 1ull << 32;
 
 const int MAX_CHAIN_LENGTH = 3000;
 
-vector<tuple<uint32_t, uint32_t, uint64_t>> all_data;
+vector<tuple<uint32_t, uint32_t>> all_data;
 
 void check(int consumption, uint32_t initial_seed, int columnno, hash_t hash, set<uint32_t> &result) {
     //printf("check(%d, %08x, %d, %016llx)\n", consumption, initial_seed, columnno, hash);
@@ -48,7 +48,7 @@ int binary_search(int consumption, int head, int tail, hash_t hash) {
     //printf("binary_search(%d, %d, %d, %016llx)\n", consumption, head, tail, hash);
     if (head < tail) {
         int mid = (head + tail) / 2;
-        hash_t h = std::get<2>(all_data[mid]);
+        hash_t h = gen_hash_from_seed(std::get<1>(all_data[mid]), consumption);
         if (h > hash) {
             return binary_search(consumption, head, mid, hash);
         } else if (h < hash) {
@@ -71,7 +71,7 @@ void search(int consumption, hash_t hash, int columnno, set<uint32_t> &result) {
     int start_index = binary_search(consumption, 0, all_data.size(), h);
     for (unsigned int i = start_index; i < all_data.size(); i ++) {
         //printf("i=%d, all_data[i]={%08x, %08x}\n", i, all_data[i].first, all_data[i].second);
-        if (std::get<2>(all_data[i]) != h) break;
+        if (gen_hash_from_seed(std::get<1>(all_data[i]), consumption) != h) break;
         check(consumption, std::get<0>(all_data[i]), columnno, hash, result);
     }
 }
@@ -94,12 +94,11 @@ int main(int argc, char* argv[]) {
     int consumption = std::stoi(argv[1]);
     std::ifstream fin;
 	fin.open(std::to_string(consumption) + ".sorted.bin", std::ios::in|std::ios::binary); 
-    uint32_t buffer[4];
-    while (fin.read((char*)buffer, sizeof(uint32_t) * 4)) {
+    uint32_t buffer[2];
+    while (fin.read((char*)buffer, sizeof(uint32_t) * 2)) {
         uint32_t first_seed = buffer[0];
         uint32_t last_seed = buffer[1];
-        uint64_t last_hash = buffer[2] | ((uint64_t)buffer[3] << 32);
-        all_data.push_back({first_seed, last_seed, last_hash});
+        all_data.push_back({first_seed, last_seed});
     };
     fin.close();
     std::cout << "finshed loading" << endl;

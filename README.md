@@ -43,7 +43,16 @@ $ ./search_rainbow_metal 417
 
 ## アップロードしたテーブルを使う方法
 
-執筆中...
+Releases (https://github.com/fujidig/sfmt-rainbow/releases )からテーブルをダウンロードできます (まだ417しかアップロードしてません)。
+
+Macの場合は上で書いたように並列化したsearch_rainbow_metalが使えるので上の手順でテーブル作成とソート以外をすればよい。
+
+WindowsやLinuxではsearch_rainbow.cppをビルドして実行します。
+
+```
+$ g++ search_rainbow.cpp ./SFMT/SFMT.c gen_hash.cpp -o search_rainbow -DSFMT_MEXP=19937
+$ ./search_rainbow 417
+```
 
 ## 今後の改良点
 
