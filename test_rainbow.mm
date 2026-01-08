@@ -63,7 +63,7 @@ int main() {
     if (!library) {
         // カレントディレクトリの .metallib を探しに行く
         NSURL *url = [NSURL fileURLWithPath:@"./default.metallib"];
-        library = [device newLibraryWithFile:url.path error:&error];
+        library = [device newLibraryWithURL:url error:&error];
     }
     
     if (!library) {

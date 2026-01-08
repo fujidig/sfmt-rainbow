@@ -11,6 +11,7 @@
 #include "gen_hash.h"
 #include <mutex>
 #include <dispatch/dispatch.h>
+#include <random>
 
 using std::vector;
 using std::pair;
@@ -43,16 +44,15 @@ void check(int consumption, uint32_t initial_seed, int columnno, hash_t target_h
 
 // Binary Search (CPU)
 // Finds the index of the first element >= hash
-int binary_search_idx(int consumption, hash_t hash) {
+int binary_search_idx(int consumption, uint32_t hash_truncated) {
     int low = 0;
     int high = (int)all_data.size();
     
     while (low < high) {
         int mid = low + (high - low) / 2;
-        // all_data stores {first, last}. We sort by Hash(last).
-        hash_t h = gen_hash_from_seed(all_data[mid].second, consumption);
+        uint32_t h = all_data[mid].second;
         
-        if (h < hash) {
+        if (h < hash_truncated) {
             low = mid + 1;
         } else {
             high = mid;
@@ -61,81 +61,15 @@ int binary_search_idx(int consumption, hash_t hash) {
     return low;
 }
 
-int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        std::cerr << "error: specify the consumption argument\n";
-        return 1;
-    }
-    int consumption = std::stoi(argv[1]);
-
-    // 1. Setup Metal
-    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-    if (!device) {
-        std::cerr << "Error: Metal device not found." << std::endl;
-        return -1;
-    }
-    
-    NSError* error = nil;
-    id<MTLLibrary> library = [device newDefaultLibrary];
-    if (!library) {
-        NSURL *url = [NSURL fileURLWithPath:@"./default.metallib"];
-        library = [device newLibraryWithFile:url.path error:&error];
-    }
-    if (!library) {
-        std::cerr << "Error: Failed to load default.metallib." << std::endl;
-        return -1;
-    }
-
-    id<MTLFunction> kernelFunc = [library newFunctionWithName:@"search_rainbow_chain"];
-    if (!kernelFunc) {
-        std::cerr << "Error: Kernel 'search_rainbow_chain' not found." << std::endl;
-        return -1;
-    }
-
-    id<MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:kernelFunc error:&error];
-    id<MTLCommandQueue> commandQueue = [device newCommandQueue];
-
-    // 2. Load Data
-    std::string filename = std::to_string(consumption) + ".sorted.bin";
-    std::ifstream fin(filename, std::ios::in | std::ios::binary);
-    if (!fin) {
-        std::cerr << "Error: Cannot open " << filename << std::endl;
-        return 1;
-    }
-    
-    // Read entire file to vector (Memory intensive but same as original)
-    // Optimization: reserve space if file size is known
-    fin.seekg(0, std::ios::end);
-    size_t fileSize = fin.tellg();
-    fin.seekg(0, std::ios::beg);
-    size_t numRecords = fileSize / (sizeof(uint32_t) * 2);
-    all_data.reserve(numRecords);
-
-    // Bulk read
-    vector<uint32_t> buffer(numRecords * 2);
-    fin.read((char*)buffer.data(), fileSize);
-    fin.close();
-
-    for (size_t i = 0; i < numRecords; i++) {
-        all_data.push_back({buffer[i*2], buffer[i*2+1]});
-    }
-
-    std::cout << "finished loading (" << numRecords << " records)" << endl;
-    std::cout << "> " << std::flush;
-
-    // 3. Read Input Hash
-    array<uint64_t, 8> rand_input;
-    for (int i = 0; i < 8; i++) {
-        std::cin >> rand_input[i];
-    }
-    hash_t target_hash = gen_hash(rand_input);
-
-    std::cout << "searching..." << std::endl;
-
+// [NEW] Separated Search Function
+set<uint32_t> search_rainbow(
+    id<MTLDevice> device,
+    id<MTLCommandQueue> commandQueue,
+    id<MTLComputePipelineState> pipeline,
+    int consumption,
+    hash_t target_hash
+) {
     // 4. Run GPU Search (Chain Extension)
-    // Input: Target Hash
-    // Output: 1500 potential end-hashes (one for each column assumption)
-    
     id<MTLBuffer> targetHashBuffer = [device newBufferWithBytes:&target_hash 
                                                          length:sizeof(uint64_t) 
                                                         options:MTLResourceStorageModeShared];
@@ -161,7 +95,6 @@ int main(int argc, char* argv[]) {
     [commandBuffer commit];
     [commandBuffer waitUntilCompleted];
 
-    printf("calculation finished\n");
 
     // 5. Check Results (CPU)
     uint64_t* gpu_results = (uint64_t*)resultsBuffer.contents;
@@ -173,10 +106,10 @@ int main(int argc, char* argv[]) {
     dispatch_apply(MAX_CHAIN_LENGTH, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^(size_t columnno) {
         hash_t end_hash = gpu_results[columnno];
         
-        int start_idx = binary_search_idx(consumption, end_hash);
+        int start_idx = binary_search_idx(consumption, (uint32_t)end_hash);
         
         for (unsigned int i = start_idx; i < all_data.size(); i++) {
-            if (gen_hash_from_seed(all_data[i].second, consumption) != end_hash) break;
+            if (all_data[i].second != (uint32_t)end_hash) break;
             
             uint32_t s = all_data[i].first;
             bool match = false;
@@ -196,12 +129,115 @@ int main(int argc, char* argv[]) {
                 set_ptr->insert(found_s);
             }
         }
-    }); 
+    });
+    
+    return result_set;
+}
 
-    for (uint32_t r : result_set) {
-        printf("%08x\n", r);
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        std::cerr << "error: specify the consumption argument\n";
+        return 1;
     }
-    printf("finished\n");
+    int consumption;
+    bool test_mode = false;
+    if (argc == 3 && std::string(argv[1]) == "test") {
+        consumption = std::stoi(argv[2]);
+        test_mode = true;
+    } else {
+        consumption = std::stoi(argv[1]);
+    }
+
+    // 1. Setup Metal
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    if (!device) {
+        std::cerr << "Error: Metal device not found." << std::endl;
+        return -1;
+    }
+    
+    NSError* error = nil;
+    id<MTLLibrary> library = [device newDefaultLibrary];
+    if (!library) {
+        NSURL *url = [NSURL fileURLWithPath:@"./default.metallib"];
+        library = [device newLibraryWithURL:url error:&error];
+    }
+    if (!library) {
+        std::cerr << "Error: Failed to load default.metallib." << std::endl;
+        return -1;
+    }
+
+    id<MTLFunction> kernelFunc = [library newFunctionWithName:@"search_rainbow_chain"];
+    if (!kernelFunc) {
+        std::cerr << "Error: Kernel 'search_rainbow_chain' not found." << std::endl;
+        return -1;
+    }
+
+    id<MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:kernelFunc error:&error];
+    id<MTLCommandQueue> commandQueue = [device newCommandQueue];
+
+    // 2. Load Data
+    std::string filename = std::to_string(consumption) + ".sorted.bin";
+    std::ifstream fin(filename, std::ios::in | std::ios::binary);
+    if (!fin) {
+        std::cerr << "Error: Cannot open " << filename << std::endl;
+        return 1;
+    }
+    
+    fin.seekg(0, std::ios::end);
+    size_t fileSize = fin.tellg();
+    fin.seekg(0, std::ios::beg);
+    size_t numRecords = fileSize / (sizeof(uint32_t) * 2);
+    all_data.reserve(numRecords);
+
+    // Bulk read
+    vector<uint32_t> buffer(numRecords * 2);
+    fin.read((char*)buffer.data(), fileSize);
+    fin.close();
+
+    for (size_t i = 0; i < numRecords; i++) {
+        all_data.push_back({buffer[i*2], buffer[i*2+1]});
+    }
+
+    std::cout << "finished loading (" << numRecords << " records)" << endl;
+
+    if (test_mode) {
+        std::random_device rd;
+        std::uniform_int_distribution<uint32_t> dist(0, 0xffffffff);
+        int num_succeeded = 0;
+        const int num_all = 300;
+        for (int i = 0; i < num_all; i ++) {
+            uint32_t seed = dist(rd);
+            hash_t target_hash = gen_hash_from_seed(seed, 417);
+            set<uint32_t> result_set = search_rainbow(device, commandQueue, pipeline, consumption, target_hash);
+            if (result_set.find(seed) != result_set.end()) {
+                std::cout << "O" << std::flush;
+            } else {
+                std::cout << "." << std::flush;
+            }
+            if (i % 10 == 9) {
+                std::cout << std::endl;
+            }
+        }
+        std::cout << num_succeeded << " / " << num_all << std::endl;
+    } else {
+        std::cout << "> " << std::flush;
+        // 3. Read Input Hash
+        array<uint64_t, 8> rand_input;
+        for (int i = 0; i < 8; i++) {
+            std::cin >> rand_input[i];
+        }
+        hash_t target_hash = gen_hash(rand_input);
+
+        std::cout << "searching..." << std::endl;
+
+        // Call the separated search function
+        set<uint32_t> result_set = search_rainbow(device, commandQueue, pipeline, consumption, target_hash);
+
+        for (uint32_t r : result_set) {
+            printf("%08x\n", r);
+        }
+        printf("finished\n");
+    }
 
     return 0;
 }

@@ -22,7 +22,7 @@ using std::set;
 constexpr uint64_t MAX = 1ull << 32;
 
 int main(int argc, char* argv[]) {
-    hash_t hash = gen_hash_from_seed(12345, 417);
+    hash_t hash = gen_hash_from_seed(0x00000000, 417);
     printf("hash = %016llx\n", hash);
     int values[8];
     for (int i = 7; i >= 0; i --) {

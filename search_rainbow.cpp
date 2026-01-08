@@ -44,17 +44,17 @@ void check(int consumption, uint32_t initial_seed, int columnno, hash_t hash, se
     }
 }
 
-int binary_search(int consumption, int head, int tail, hash_t hash) {
+int binary_search(int consumption, int head, int tail, uint32_t hash_truncated) {
     //printf("binary_search(%d, %d, %d, %016llx)\n", consumption, head, tail, hash);
     if (head < tail) {
         int mid = (head + tail) / 2;
-        hash_t h = gen_hash_from_seed(std::get<1>(all_data[mid]), consumption);
-        if (h > hash) {
-            return binary_search(consumption, head, mid, hash);
-        } else if (h < hash) {
-            return binary_search(consumption, mid + 1, tail, hash);
+        uint32_t h = std::get<1>(all_data[mid]);
+        if (h > hash_truncated) {
+            return binary_search(consumption, head, mid, hash_truncated);
+        } else if (h < hash_truncated) {
+            return binary_search(consumption, mid + 1, tail, hash_truncated);
         } else {
-            return binary_search(consumption, head, mid, hash);
+            return binary_search(consumption, head, mid, hash_truncated);
         }
     } else {
         return head;
@@ -68,10 +68,10 @@ void search(int consumption, hash_t hash, int columnno, set<uint32_t> &result) {
         uint32_t seed = (reduce_hash(h) + (n - 1)) % MAX;
         h = gen_hash_from_seed(seed, consumption);
     }
-    int start_index = binary_search(consumption, 0, all_data.size(), h);
+    int start_index = binary_search(consumption, 0, all_data.size(), (uint32_t)h);
     for (unsigned int i = start_index; i < all_data.size(); i ++) {
         //printf("i=%d, all_data[i]={%08x, %08x}\n", i, all_data[i].first, all_data[i].second);
-        if (gen_hash_from_seed(std::get<1>(all_data[i]), consumption) != h) break;
+        if (std::get<1>(all_data[i]) != (uint32_t)h) break;
         check(consumption, std::get<0>(all_data[i]), columnno, hash, result);
     }
 }
@@ -97,8 +97,8 @@ int main(int argc, char* argv[]) {
     uint32_t buffer[2];
     while (fin.read((char*)buffer, sizeof(uint32_t) * 2)) {
         uint32_t first_seed = buffer[0];
-        uint32_t last_seed = buffer[1];
-        all_data.push_back({first_seed, last_seed});
+        uint32_t last_hash_truncated = buffer[1];
+        all_data.push_back({first_seed, last_hash_truncated});
     };
     fin.close();
     std::cout << "finshed loading" << endl;
