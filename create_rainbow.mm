@@ -10,8 +10,8 @@
 
 constexpr uint64_t MAX = 1ull << 32;
 constexpr int BATCH_SIZE = 2000; // 安全のため少し小さめに設定
-constexpr int NUM_CHAIN_MAX = 1310000;
-constexpr int NUM_BLOCKS = 5;
+constexpr int NUM_CHAIN_MAX = 2100000;
+constexpr int NUM_BLOCKS = 6;
 
 struct ChainResult {
     uint32_t start_val;

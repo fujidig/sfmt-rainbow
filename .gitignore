@@ -7,3 +7,4 @@ test_rainbow
 search_rainbow
 sort_rainbow
 *.bin
+*.o

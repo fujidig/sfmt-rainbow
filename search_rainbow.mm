@@ -211,6 +211,7 @@ int main(int argc, char* argv[]) {
             set<uint32_t> result_set = search_rainbow(device, commandQueue, pipeline, consumption, target_hash);
             if (result_set.find(seed) != result_set.end()) {
                 std::cout << "O" << std::flush;
+                num_succeeded ++;
             } else {
                 std::cout << "." << std::flush;
             }
